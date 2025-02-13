@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Editor de JavaScript com Autocompletar</title>
+
+    <!-- CodeMirror -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/codemirror.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/theme/dracula.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/theme/eclipse.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/addon/hint/show-hint.min.css">
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f9;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        .container {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            width: 90%;
+            max-width: 800px;
+            text-align: center;
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        h1 {
+            color: #333;
+        }
+
+        .instruction {
+            font-size: 14px;
+            color: #555;
+            margin-top: 20px;
+            line-height: 1.5;
+        }
+
+        #editor {
+            height: 300px;
+            margin-top: 20px;
+        }
+
+        button {
+            width: 100%;
+            padding: 10px;
+            background-color: #007BFF;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 16px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+
+        button:hover {
+            background-color: #0056b3;
+        }
+
+        pre {
+            background-color: #282c34;
+            color: #f1f1f1;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            overflow-x: auto;
+            margin-top: 20px;
+            white-space: pre-wrap;
+            text-align: left;
+        }
+
+        #loadingMessage {
+            color: #007BFF;
+            font-weight: bold;
+        }
+
+        #saveButton {
+            background-color: #28a745;
+        }
+
+        #saveButton:hover {
+            background-color: #218838;
+        }
+
+        #themeToggle {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #FFC107;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        #themeToggle:hover {
+            background-color: #e0a800;
+        }
+
+        /* Estilos para a imagem */
+        #headerImage {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            width: 50px; /* Ajuste o tamanho conforme necessário */
+            height: auto;
+        }
+    </style>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/mode/javascript/javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/addon/hint/show-hint.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/addon/hint/javascript-hint.min.js"></script>
+
+</head>
+<body>
+
+
+    <div class="container">
+        <h1>Editor de JavaScript com Autocompletar</h1>
+        <p class="instruction">
+        Digite o seu código JavaScript abaixo e clique em "Executar" para ver o resultado. Use o autocompletar para facilitar a codificação!
+        </p>
+        
+        <div id="editor"></div>
+
+        <h3>Bibliotecas Externas:</h3>
+        <textarea id="libraries" placeholder="Digite as URLs das bibliotecas (um por linha)..."></textarea>
+        
+        <button onclick="runCode()">Executar Código</button>
+        
+        <pre id="output">Resultado será exibido aqui...</pre>
+        <div id="loadingMessage" style="display: none;">Executando...</div>
+
+        <p class="instruction">
+            Dica: Tente escrever algo simples, como <span style="color: #007BFF">console.log('Olá, Mundo!');</span>
+        </p>
+
+        <button id="saveButton" onclick="saveCode()">Salvar Código</button>
+        
+        <button id="themeToggle" onclick="toggleTheme()">Alternar Tema</button>
+    </div>
+
+    <script>
+        // Função para traduzir erros para o português
+        function translateError(errorMessage) {
+            const translations = {
+                "Invalid or unexpected token": "Token inválido ou inesperado",
+                "Uncaught SyntaxError": "Erro de sintaxe",
+                "Unexpected end of input": "Fim inesperado da entrada",
+                "Unexpected identifier": "Identificador inesperado",
+                "Uncaught ReferenceError": "Erro de referência",
+                "Uncaught TypeError": "Erro de tipo",
+                // Adicione mais traduções conforme necessário
+            };
+
+            return translations[errorMessage] || errorMessage; // Retorna a tradução ou a mensagem original
+        }
+
+        // Redefinir o console.log para que ele escreva no <pre id="output">
+        const outputElement = document.getElementById('output');
+        const loadingMessage = document.getElementById('loadingMessage');
+        const originalConsoleLog = console.log;
+        console.log = function(message) {
+            outputElement.textContent += message + '\n';
+            originalConsoleLog.apply(console, arguments);
+        };
+
+        // Criar o editor CodeMirror
+        let currentTheme = 'dracula'; // Tema inicial
+        const editor = CodeMirror(document.getElementById("editor"), {
+            mode: "javascript", // Modo JavaScript
+            theme: currentTheme,   // Tema inicial
+            lineNumbers: true,  // Mostrar números de linha
+            extraKeys: {
+                "Ctrl-Space": "autocomplete", // Atalho para autocompletar
+            },
+            hintOptions: {
+                completeSingle: false
+            },
+            showHint: function(editor, options) {
+                return CodeMirror.hint.javascript(editor, options); // Ativa autocompletar enquanto digita
+            }
+        });
+
+        // Habilitar autocompletar ao pressionar qualquer tecla de A a Z
+        editor.on('keydown', function(editor, event) {
+            const key = event.key;
+            // Verifica se a tecla pressionada é uma letra do alfabeto
+            if (/^[a-zA-Z]$/.test(key)) {
+                setTimeout(function() {
+                    editor.execCommand("autocomplete"); // Chama o autocompletar
+                }, 0);
+            }
+        });
+
+        // Função para carregar as bibliotecas externas
+        function loadLibraries(libraries, callback) {
+            let count = 0;
+            const totalLibraries = libraries.length;
+
+            libraries.forEach(url => {
+                const script = document.createElement('script');
+                script.src = url;
+                script.onload = () => {
+                    count++;
+                    if (count === totalLibraries) {
+                        callback(); // Chama a função de execução do código após carregar todas as bibliotecas
+                    }
+                };
+                script.onerror = () => {
+                    outputElement.textContent += `Erro ao carregar a biblioteca: ${url}\n`;
+                    count++;
+                    if (count === totalLibraries) {
+                        callback();
+                    }
+                };
+                document.head.appendChild(script);
+            });
+        }
+
+        // Função para rodar o código do usuário
+        function runCode() {
+            const code = editor.getValue();
+            const librariesInput = document.getElementById('libraries').value;
+
+            // Limpa a área de saída antes de rodar o novo código
+            outputElement.textContent = "";
+            loadingMessage.style.display = "block"; // Exibe a mensagem "Executando..."
+
+            // Extrai as bibliotecas digitadas pelo usuário, uma por linha
+            const libraries = librariesInput.split('\n').map(url => url.trim()).filter(url => url);
+
+            // Carrega as bibliotecas externas se houverem, depois executa o código
+            if (libraries.length > 0) {
+                loadLibraries(libraries, function() {
+                    executeCode(code);
+                });
+            } else {
+                executeCode(code);
+            }
+        }
+
+        // Função para executar o código JavaScript
+        function executeCode(code) {
+            try {
+                // Usa eval para rodar o código inserido pelo usuário
+                eval(code);
+            } catch (error) {
+                // Traduz a mensagem de erro para português
+                const translatedError = translateError(error.message);
+                outputElement.textContent = 'Erro: ' + translatedError;
+            } finally {
+                loadingMessage.style.display = "none"; // Esconde a mensagem "Executando..."
+            }
+        }
+
+        // Função para alternar entre temas claro e escuro
+        function toggleTheme() {
+            if (currentTheme === 'dracula') {
+                currentTheme = 'eclipse';
+                document.body.style.backgroundColor = "#f4f4f9";
+                document.querySelector('.container').style.backgroundColor = "#ffffff";
+            } else {
+                currentTheme = 'dracula';
+                document.body.style.backgroundColor = "#282c34";
+                document.querySelector('.container').style.backgroundColor = "#333333";
+            }
+
+            // Muda o tema do CodeMirror
+            editor.setOption("theme", currentTheme);
+        }
+    </script>
+
+</body>
+</html>
